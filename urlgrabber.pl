@@ -28,19 +28,18 @@ Irssi::settings_add_str("url_grab", "url_grab_ignores", ''); # space-separated i
 
 our $db_file = Irssi::settings_get_str("url_grab_db");
 our $html_file = Irssi::settings_get_str("url_grab_html");
-our $html_max_size = Irssi::settings_get_int("url_grab_html_size");
 our @urls;
-our %ignores;
 our $new_urls = 0;
 our $startup = time;
 
 if (Irssi::settings_get_bool("url_grab")) {
 	if (open DB, '<', "$db_file") {
+		my $html_max_size = Irssi::settings_get_int("url_grab_html_size");
 		while (<DB>) {
 			chomp;
 			my ($time, $chan, $nick, $url) = split(/\t/);
 			push @urls, [$time, $chan, $nick, $url];
-			if (scalar @urls > $html_max_size) {
+			while (scalar @urls > $html_max_size) {
 				shift @urls;
 			}
 		}
@@ -49,8 +48,6 @@ if (Irssi::settings_get_bool("url_grab")) {
 	} else {
 		Irssi::print "URL db not found.";
 	}
-	$ignores{$_}=1 for split(/ +/, Irssi::settings_get_str("url_grab_ignores"));
-	
 	open DB, '>>', "$db_file" or die $!;
 	select((select(DB), $| = 1)[0]);
 	Irssi::signal_add_last('message public', \&public_msg);
@@ -61,8 +58,10 @@ if (Irssi::settings_get_bool("url_grab")) {
 
 sub public_msg {
 	my @arg = map { decode("utf-8",$_) } @_;
+	my %ignores;
 	my ($server, $msg, $nick, $address, $chan) = @arg;
-	return if exists $ignores{$nick} || exists $ignores{$chan};
+	$ignores{lc($_)}=1 for split(/ +/, Irssi::settings_get_str("url_grab_ignores"));
+	return if exists $ignores{lc($nick)} || exists $ignores{lc($chan)};
 	while ($msg =~ /(https?:\/\/[^ \/]{4,}[^ ]*)/ig) {
 		my $url = $1;
 		$url =~ s/[\n\t]//g;
@@ -70,7 +69,8 @@ sub public_msg {
 		my $line = join("\t", @{$urls[$#urls]})."\n";
 		print DB $line;
 		$new_urls++;
-		if (scalar @urls > $html_max_size) {
+		my $html_max_size = Irssi::settings_get_int("url_grab_html_size");
+		while (scalar @urls > $html_max_size) {
 			shift @urls;
 		}
 		write_html() if $html_file =~ /\w/ && $new_urls%4 == 0;
